@@ -1,0 +1,265 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "6a1b9112-9ec0-497b-8efb-3a575666bdb6",
+   "metadata": {},
+   "source": [
+    "# Microsoft Financial Data Automation Project\n",
+    "## Automated Financial Data Pipeline | FY2022-FY2024\n",
+    "### Data Source: SEC Filings via Alpha Vantage API\n",
+    "**Built by: Shruti Gupta | MS Finance, Fordham University**"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "4599be2a-a28e-40b1-9c37-45c8b3c0f1de",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Import libraries\n",
+    "import requests\n",
+    "import pandas as pd\n",
+    "import openpyxl\n",
+    "\n",
+    "print(\"All libraries loaded successfully\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "70325c90-dc5e-484a-8979-5454568d6856",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Pull Microsoft quarterly income statement from Alpha Vantage\n",
+    "api_key = \"API_KEY\"\n",
+    "\n",
+    "url = \"https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=MSFT&apikey=\" + api_key\n",
+    "\n",
+    "response = requests.get(url)\n",
+    "data = response.json()\n",
+    "\n",
+    "print(\"Data pulled successfully\")\n",
+    "print(\"Keys in response:\", list(data.keys()))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "120d7db7-f291-4ab2-a4f0-991f9adbb5de",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Extract quarterly reports\n",
+    "quarterly = data[\"quarterlyReports\"]\n",
+    "\n",
+    "print(\"Total quarters available:\", len(quarterly))\n",
+    "print(\"Most recent quarter:\", quarterly[0][\"fiscalDateEnding\"])\n",
+    "print(\"Oldest quarter available:\", quarterly[-1][\"fiscalDateEnding\"])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "bd1a454f-54ca-4891-9529-84b2f57846c8",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Convert to DataFrame\n",
+    "df_raw = pd.DataFrame(quarterly)\n",
+    "\n",
+    "# Convert date column\n",
+    "df_raw[\"fiscalDateEnding\"] = pd.to_datetime(df_raw[\"fiscalDateEnding\"])\n",
+    "\n",
+    "# Filter to FY2022-FY2024\n",
+    "df_raw = df_raw[\n",
+    "    (df_raw[\"fiscalDateEnding\"] >= \"2021-07-01\") & \n",
+    "    (df_raw[\"fiscalDateEnding\"] <= \"2024-12-31\") ]\n",
+    "\n",
+    "# Keep only columns we need\n",
+    "df = df_raw[[\n",
+    "    \"fiscalDateEnding\",\n",
+    "    \"totalRevenue\",\n",
+    "    \"grossProfit\", \n",
+    "    \"operatingIncome\",\n",
+    "    \"netIncome\",\n",
+    "    \"researchAndDevelopment\"\n",
+    "]].copy()\n",
+    "\n",
+    "# Rename to clean names\n",
+    "df.columns = [\n",
+    "    \"date\", \"revenue\", \"gross_profit\",\n",
+    "    \"operating_income\", \"net_income\", \"rd_expense\"\n",
+    "]\n",
+    "\n",
+    "# Sort oldest to newest\n",
+    "df = df.sort_values(\"date\").reset_index(drop=True)\n",
+    "\n",
+    "print(\"Quarters in dataset:\", len(df))\n",
+    "print(df)\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "ad22c0ab-7404-4b57-840f-ddcb21bbd432",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Convert numeric columns from strings to numbers\n",
+    "numeric_cols = [\"revenue\", \"gross_profit\", \"operating_income\", \"net_income\", \"rd_expense\"]\n",
+    "\n",
+    "for col in numeric_cols:\n",
+    "    df[col] = pd.to_numeric(df[col], errors=\"coerce\")\n",
+    "\n",
+    "print(\"Data types after conversion:\")\n",
+    "print(df.dtypes)\n",
+    "print()\n",
+    "print(df.head())"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "bbfc44bf-e5db-4b5d-b69f-ae6fd354df6f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Add calculated financial metrics\n",
+    "df[\"gross_margin_pct\"] = (df[\"gross_profit\"] / df[\"revenue\"] * 100).round(2)\n",
+    "df[\"operating_margin_pct\"] = (df[\"operating_income\"] / df[\"revenue\"] * 100).round(2)\n",
+    "df[\"net_margin_pct\"] = (df[\"net_income\"] / df[\"revenue\"] * 100).round(2)\n",
+    "df[\"rd_pct_of_revenue\"] = (df[\"rd_expense\"] / df[\"revenue\"] * 100).round(2)\n",
+    "df[\"qoq_revenue_growth\"] = (df[\"revenue\"].pct_change() * 100).round(2)\n",
+    "\n",
+    "print(df[[\"date\", \"gross_margin_pct\", \"operating_margin_pct\", \n",
+    "          \"net_margin_pct\", \"rd_pct_of_revenue\", \"qoq_revenue_growth\"]])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "d539eeed-c805-476d-a2da-4cbfa5f92e34",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Add fiscal year label\n",
+    "def get_fiscal_year(date):\n",
+    "    if date.month >= 7:\n",
+    "        return \"FY\" + str(date.year + 1)\n",
+    "    else:\n",
+    "        return \"FY\" + str(date.year)\n",
+    "\n",
+    "df[\"fiscal_year\"] = df[\"date\"].apply(get_fiscal_year)\n",
+    "\n",
+    "print(df[[\"date\", \"fiscal_year\", \"revenue\"]])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "51b74da4-7232-47a6-af04-73025e5110d8",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Filter to FY2022-FY2024 only\n",
+    "df = df[df[\"fiscal_year\"].isin([\"FY2022\", \"FY2023\", \"FY2024\"])]\n",
+    "df = df.reset_index(drop=True)\n",
+    "\n",
+    "print(\"Final quarters in dataset:\", len(df))\n",
+    "print(df[[\"date\", \"fiscal_year\", \"revenue\"]])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "d29df2c7-de34-4bd5-b7f0-b6d0e31bce4b",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Validation — compare against Microsoft's reported annual figures\n",
+    "fy2024_actual = df[df[\"fiscal_year\"] == \"FY2024\"][\"revenue\"].sum()\n",
+    "fy2023_actual = df[df[\"fiscal_year\"] == \"FY2023\"][\"revenue\"].sum()\n",
+    "fy2022_actual = df[df[\"fiscal_year\"] == \"FY2022\"][\"revenue\"].sum()\n",
+    "\n",
+    "print(\"Our calculated annual revenues:\")\n",
+    "print(f\"FY2022: ${fy2022_actual/1e9:.2f}B\")\n",
+    "print(f\"FY2023: ${fy2023_actual/1e9:.2f}B\")\n",
+    "print(f\"FY2024: ${fy2024_actual/1e9:.2f}B\")\n",
+    "\n",
+    "print()\n",
+    "print(\"Microsoft's officially reported annual revenues:\")\n",
+    "print(\"FY2022: $198.27B\")\n",
+    "print(\"FY2023: $211.92B\")\n",
+    "print(\"FY2024: $245.12B\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "4f224969-db22-435e-9025-0dedac888049",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Export clean data to Excel\n",
+    "output_path = \"MSFT_Financial_Data_FY2022_FY2024.xlsx\"\n",
+    "\n",
+    "df.to_excel(output_path, index=False, sheet_name=\"MSFT Quarterly Data\")\n",
+    "\n",
+    "print(\"File exported successfully\")\n",
+    "print(\"File name:\", output_path)\n",
+    "print(\"Rows exported:\", len(df))\n",
+    "print(\"Columns exported:\", list(df.columns))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "a688744d-1a08-4859-a31f-1d1686c99e58",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Clean date format and re-export\n",
+    "df[\"date\"] = df[\"date\"].dt.strftime(\"%Y-%m-%d\")\n",
+    "\n",
+    "df.to_excel(\"MSFT_Financial_Data_FY2022_FY2024.xlsx\", \n",
+    "            index=False, \n",
+    "            sheet_name=\"MSFT Quarterly Data\")\n",
+    "\n",
+    "print(\"Clean file exported successfully\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "78c27e92-c041-46e5-aca2-be1bc1059478",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.9.6"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
